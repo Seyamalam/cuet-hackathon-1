@@ -10,6 +10,7 @@ import { NodeSDK } from "@opentelemetry/sdk-node";
 import { ATTR_SERVICE_NAME } from "@opentelemetry/semantic-conventions";
 import { Scalar } from "@scalar/hono-api-reference";
 import { cors } from "hono/cors";
+import { routePath } from "hono/route";
 import { secureHeaders } from "hono/secure-headers";
 import { timeout } from "hono/timeout";
 import { rateLimiter } from "hono-rate-limiter";
@@ -175,13 +176,21 @@ interface TrackedError {
 const recentErrors: TrackedError[] = [];
 const MAX_ERRORS = 100;
 
-function trackError(error: Error | unknown, context?: { endpoint?: string; method?: string; status?: number; requestId?: string }) {
+function trackError(
+  error: unknown,
+  context?: {
+    endpoint?: string;
+    method?: string;
+    status?: number;
+    requestId?: string;
+  },
+) {
   const trackedError: TrackedError = {
     id: crypto.randomUUID(),
     timestamp: new Date().toISOString(),
     message: error instanceof Error ? error.message : String(error),
     stack: error instanceof Error ? error.stack : undefined,
-    ...context
+    ...context,
   };
   recentErrors.unshift(trackedError);
   if (recentErrors.length > MAX_ERRORS) {
@@ -203,7 +212,7 @@ app.use(async (c, next) => {
   await next();
   const duration = (Date.now() - start) / 1000;
 
-  const path = c.req.routePath || c.req.path;
+  const path = routePath(c) || c.req.path;
   const method = c.req.method;
   const status = String(c.res.status);
 
@@ -280,7 +289,7 @@ const ErrorResponseSchema = z
 app.onError((err, c) => {
   c.get("sentry").captureException(err);
   const requestId = c.get("requestId") as string | undefined;
-  
+
   // Track error locally for dashboard
   trackError(err, {
     endpoint: c.req.path,
@@ -288,7 +297,7 @@ app.onError((err, c) => {
     status: 500,
     requestId,
   });
-  
+
   return c.json(
     {
       error: "Internal Server Error",
@@ -437,7 +446,10 @@ const checkS3Availability = async (
   // If no bucket configured, use mock mode
   if (!env.S3_BUCKET_NAME) {
     const available = fileId % 7 === 0;
-    s3OperationsTotal.inc({ operation: "head", status: available ? "success" : "not_found" });
+    s3OperationsTotal.inc({
+      operation: "head",
+      status: available ? "success" : "not_found",
+    });
     return {
       available,
       s3Key: available ? s3Key : null,
@@ -452,14 +464,14 @@ const checkS3Availability = async (
     });
     const response = await s3Client.send(command);
     const duration = (Date.now() - startTime) / 1000;
-    
+
     // Track S3 operation metrics
     s3OperationsTotal.inc({ operation: "head", status: "success" });
     s3OperationDuration.observe({ operation: "head" }, duration);
     if (response.ContentLength) {
       s3BytesTransferred.inc({ direction: "download" }, response.ContentLength);
     }
-    
+
     return {
       available: true,
       s3Key,
@@ -469,7 +481,7 @@ const checkS3Availability = async (
     const duration = (Date.now() - startTime) / 1000;
     s3OperationsTotal.inc({ operation: "head", status: "not_found" });
     s3OperationDuration.observe({ operation: "head" }, duration);
-    
+
     return {
       available: false,
       s3Key: null,
@@ -515,10 +527,10 @@ app.post("/errors/test", (c) => {
     status: 500,
     requestId: c.get("requestId"),
   });
-  
+
   // Also send to Sentry if configured
   c.get("sentry").captureException(testError);
-  
+
   return c.json({
     message: "Test error triggered and tracked",
     errorId: recentErrors[0]?.id,

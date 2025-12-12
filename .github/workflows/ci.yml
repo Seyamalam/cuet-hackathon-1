@@ -78,7 +78,7 @@ jobs:
           # Install mc client
           curl -sL https://dl.min.io/client/mc/release/linux-amd64/mc -o /usr/local/bin/mc
           chmod +x /usr/local/bin/mc
-          
+
           # Configure and create bucket
           mc alias set myminio http://localhost:9000 minioadmin minioadmin
           mc mb myminio/downloads --ignore-existing
@@ -109,11 +109,11 @@ jobs:
           npm run start &
           SERVER_PID=$!
           sleep 5
-          
+
           # Test health endpoint
           HEALTH=$(curl -sf http://localhost:3000/health || echo '{"status":"error"}')
           echo "Health response: $HEALTH"
-          
+
           # Verify storage is ok
           if echo "$HEALTH" | grep -q '"storage":"ok"'; then
             echo "✅ Storage health check passed"
@@ -122,7 +122,7 @@ jobs:
             kill $SERVER_PID 2>/dev/null || true
             exit 1
           fi
-          
+
           kill $SERVER_PID 2>/dev/null || true
         env:
           NODE_ENV: test
@@ -327,7 +327,7 @@ jobs:
         run: |
           echo "Waiting for services..."
           sleep 30
-          
+
           # Check API health
           for i in {1..30}; do
             if curl -sf http://localhost:3000/health; then
@@ -343,12 +343,12 @@ jobs:
           # Test root endpoint
           echo "Testing root endpoint..."
           curl -sf http://localhost:3000/ | jq .
-          
+
           # Test health endpoint
           echo "Testing health endpoint..."
           HEALTH=$(curl -sf http://localhost:3000/health)
           echo "$HEALTH" | jq .
-          
+
           # Verify health checks
           if echo "$HEALTH" | jq -e '.checks.storage == "ok"' > /dev/null; then
             echo "✅ Storage check passed"
@@ -356,37 +356,37 @@ jobs:
             echo "❌ Storage check failed"
             exit 1
           fi
-          
+
           # Test API docs
           echo "Testing API docs..."
           curl -sf http://localhost:3000/docs > /dev/null && echo "✅ Docs available"
-          
+
           # Test OpenAPI spec
           echo "Testing OpenAPI spec..."
           curl -sf http://localhost:3000/openapi | jq '.info.title' && echo "✅ OpenAPI spec available"
-          
+
           # Test metrics endpoint
           echo "Testing metrics endpoint..."
           curl -sf http://localhost:3000/metrics | head -20 && echo "✅ Metrics available"
-          
+
           # Test download check endpoint
           echo "Testing download check endpoint..."
           curl -sf -X POST http://localhost:3000/v1/download/check \
             -H "Content-Type: application/json" \
             -d '{"file_id": 70000}' | jq .
-          
+
           # Test Prometheus
           echo "Testing Prometheus..."
           curl -sf http://localhost:9090/-/healthy && echo "✅ Prometheus healthy"
-          
+
           # Test Jaeger
           echo "Testing Jaeger..."
           curl -sf http://localhost:16686/ > /dev/null && echo "✅ Jaeger UI available"
-          
+
           # Test Grafana
           echo "Testing Grafana..."
           curl -sf http://localhost:3001/api/health | jq . && echo "✅ Grafana healthy"
-          
+
           echo ""
           echo "🎉 All integration tests passed!"
 

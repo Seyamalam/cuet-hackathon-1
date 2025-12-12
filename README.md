@@ -471,15 +471,15 @@ npm run docker:prod
 
 ### Pipeline Features
 
-| Feature | Description |
-|---------|-------------|
-| **Lint** | ESLint + Prettier format check |
-| **E2E Tests** | Full API tests with MinIO S3 storage |
-| **Dashboard Tests** | TypeScript check + Vite build |
-| **Security Scan** | Trivy vulnerability scanner with SARIF upload |
-| **Docker Build** | Multi-platform builds with GitHub Container Registry |
-| **Integration Tests** | Full Docker Compose stack testing |
-| **Deployment** | AWS VM deployment (configurable) |
+| Feature               | Description                                          |
+| --------------------- | ---------------------------------------------------- |
+| **Lint**              | ESLint + Prettier format check                       |
+| **E2E Tests**         | Full API tests with MinIO S3 storage                 |
+| **Dashboard Tests**   | TypeScript check + Vite build                        |
+| **Security Scan**     | Trivy vulnerability scanner with SARIF upload        |
+| **Docker Build**      | Multi-platform builds with GitHub Container Registry |
+| **Integration Tests** | Full Docker Compose stack testing                    |
+| **Deployment**        | AWS VM deployment (configurable)                     |
 
 ### Triggers
 
@@ -519,15 +519,15 @@ npm run lint && npm run format:check && npm run test:e2e
 
 The full pipeline is defined in [.github/workflows/ci.yml](.github/workflows/ci.yml):
 
-| Job | Description | Dependencies |
-|-----|-------------|--------------|
-| `lint` | ESLint + Prettier | None |
-| `test` | E2E tests with MinIO | lint |
-| `test-dashboard` | Dashboard build | lint |
-| `security` | Trivy scanner | lint |
-| `build` | Docker image build | test, test-dashboard, security |
-| `integration` | Docker Compose tests | build |
-| `deploy` | AWS VM deployment | build, integration |
+| Job              | Description          | Dependencies                   |
+| ---------------- | -------------------- | ------------------------------ |
+| `lint`           | ESLint + Prettier    | None                           |
+| `test`           | E2E tests with MinIO | lint                           |
+| `test-dashboard` | Dashboard build      | lint                           |
+| `security`       | Trivy scanner        | lint                           |
+| `build`          | Docker image build   | test, test-dashboard, security |
+| `integration`    | Docker Compose tests | build                          |
+| `deploy`         | AWS VM deployment    | build, integration             |
 
 ### Docker Images
 
@@ -545,11 +545,11 @@ docker pull ghcr.io/seyamalam/cuet-hackathon-1-dashboard:latest
 
 To enable deployment, configure these secrets in your GitHub repository:
 
-| Secret | Description |
-|--------|-------------|
+| Secret                | Description                   |
+| --------------------- | ----------------------------- |
 | `AWS_SSH_PRIVATE_KEY` | SSH private key for VM access |
-| `AWS_VM_HOST` | VM hostname or IP address |
-| `AWS_VM_USER` | SSH username (e.g., `ubuntu`) |
+| `AWS_VM_HOST`         | VM hostname or IP address     |
+| `AWS_VM_USER`         | SSH username (e.g., `ubuntu`) |
 
 ---
 

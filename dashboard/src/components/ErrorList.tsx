@@ -1,5 +1,13 @@
 import { useState, useEffect, useCallback } from "react";
-import { AlertCircle, Bug, RefreshCw, Trash2, Server, Monitor, ExternalLink } from "lucide-react";
+import {
+  AlertCircle,
+  Bug,
+  RefreshCw,
+  Trash2,
+  Server,
+  Monitor,
+  ExternalLink,
+} from "lucide-react";
 import { captureError, addBreadcrumb } from "../sentry";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
@@ -55,7 +63,9 @@ export function ErrorList() {
     const errorMessage = testError || "Test error triggered from dashboard";
     const error = new Error(errorMessage);
 
-    addBreadcrumb("User triggered test error", "user", { message: errorMessage });
+    addBreadcrumb("User triggered test error", "user", {
+      message: errorMessage,
+    });
     captureError(error, { source: "dashboard", userTriggered: true });
 
     setLocalErrors((prev) => [
@@ -86,9 +96,15 @@ export function ErrorList() {
   const clearLocalErrors = () => setLocalErrors([]);
 
   const allErrors = [
-    ...localErrors.map((e) => ({ ...e, source: "frontend" as const, timestamp: e.timestamp.toISOString() })),
+    ...localErrors.map((e) => ({
+      ...e,
+      source: "frontend" as const,
+      timestamp: e.timestamp.toISOString(),
+    })),
     ...apiErrors.map((e) => ({ ...e, source: "api" as const })),
-  ].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  ].sort(
+    (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
+  );
 
   const filteredErrors =
     activeTab === "all"
@@ -101,7 +117,9 @@ export function ErrorList() {
         <div className="flex items-center gap-2">
           <AlertCircle className="w-5 h-5 text-red-400" />
           <h2 className="text-lg font-semibold">Error Tracking</h2>
-          {loading && <RefreshCw className="w-4 h-4 text-slate-400 animate-spin" />}
+          {loading && (
+            <RefreshCw className="w-4 h-4 text-slate-400 animate-spin" />
+          )}
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -181,7 +199,9 @@ export function ErrorList() {
         <div className="text-center py-8">
           <Bug className="w-12 h-12 text-slate-600 mx-auto mb-3" />
           <p className="text-slate-400 text-sm">No errors captured yet.</p>
-          <p className="text-slate-500 text-xs mt-1">Use the buttons above to test error tracking.</p>
+          <p className="text-slate-500 text-xs mt-1">
+            Use the buttons above to test error tracking.
+          </p>
         </div>
       ) : (
         <div className="space-y-2 max-h-80 overflow-y-auto">
@@ -202,9 +222,13 @@ export function ErrorList() {
                     ) : (
                       <Monitor className="w-3.5 h-3.5 text-red-400 flex-shrink-0" />
                     )}
-                    <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${
-                      error.source === "api" ? "bg-purple-600/30 text-purple-300" : "bg-red-600/30 text-red-300"
-                    }`}>
+                    <span
+                      className={`text-xs font-medium px-1.5 py-0.5 rounded ${
+                        error.source === "api"
+                          ? "bg-purple-600/30 text-purple-300"
+                          : "bg-red-600/30 text-red-300"
+                      }`}
+                    >
                       {error.source.toUpperCase()}
                     </span>
                     {"endpoint" in error && error.endpoint && (
@@ -213,9 +237,13 @@ export function ErrorList() {
                       </span>
                     )}
                   </div>
-                  <p className={`text-sm font-medium truncate ${
-                    error.source === "api" ? "text-purple-300" : "text-red-300"
-                  }`}>
+                  <p
+                    className={`text-sm font-medium truncate ${
+                      error.source === "api"
+                        ? "text-purple-300"
+                        : "text-red-300"
+                    }`}
+                  >
                     {error.message}
                   </p>
                   <div className="flex items-center gap-2 mt-1">
@@ -240,7 +268,9 @@ export function ErrorList() {
         <div className="flex items-start gap-2">
           <AlertCircle className="w-4 h-4 text-blue-400 mt-0.5 flex-shrink-0" />
           <div className="text-xs text-slate-400">
-            <p className="font-medium text-slate-300 mb-1">Sentry Integration</p>
+            <p className="font-medium text-slate-300 mb-1">
+              Sentry Integration
+            </p>
             <a
               href="https://sentry.io"
               target="_blank"
