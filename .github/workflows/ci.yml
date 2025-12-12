@@ -109,6 +109,19 @@ jobs:
 
       - name: Test API Health Endpoint
         run: |
+          # Create minimal .env file for the server
+          cat > .env << EOF
+          NODE_ENV=test
+          PORT=3000
+          S3_REGION=us-east-1
+          S3_ENDPOINT=http://localhost:9000
+          S3_ACCESS_KEY_ID=minioadmin
+          S3_SECRET_ACCESS_KEY=minioadmin
+          S3_BUCKET_NAME=downloads
+          S3_FORCE_PATH_STYLE=true
+          DOWNLOAD_DELAY_ENABLED=false
+          EOF
+
           # Start the server in background
           npm run start &
           SERVER_PID=$!
@@ -213,8 +226,8 @@ jobs:
           ignore-unfixed: true
 
       - name: Upload Trivy scan results to GitHub Security
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        if: always() && hashFiles('trivy-results.sarif') != ''
         with:
           sarif_file: "trivy-results.sarif"
 
