@@ -110,11 +110,6 @@ services:
     depends_on:
       - delineate-app
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:80"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
 
 volumes:
   minio-data:
