@@ -112,7 +112,17 @@ jobs:
           # Start the server in background
           npm run start &
           SERVER_PID=$!
-          sleep 5
+          
+          # Wait for server to be ready (up to 30 seconds)
+          echo "Waiting for server to start..."
+          for i in {1..30}; do
+            if curl -sf http://localhost:3000/health > /dev/null 2>&1; then
+              echo "Server is ready! (took ${i} seconds)"
+              break
+            fi
+            echo "Waiting... ($i/30)"
+            sleep 1
+          done
 
           # Test health endpoint
           HEALTH=$(curl -sf http://localhost:3000/health || echo '{"status":"error"}')
