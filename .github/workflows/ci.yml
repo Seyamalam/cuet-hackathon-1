@@ -361,7 +361,25 @@ jobs:
       - name: Start services with Docker Compose
         run: |
           cd docker
-          docker compose -f compose.dev.yml up -d --wait --wait-timeout 120
+          # Start services without --wait (minio-init exits after setup which causes --wait to fail)
+          docker compose -f compose.dev.yml up -d
+
+          # Wait for main services to be healthy
+          echo "Waiting for services to start..."
+          sleep 10
+
+          # Check each service individually
+          for service in delineate-minio delineate-app delineate-prometheus delineate-jaeger delineate-grafana; do
+            echo "Checking $service..."
+            for i in {1..30}; do
+              if docker compose -f compose.dev.yml ps $service | grep -q "healthy\|running"; then
+                echo "✅ $service is ready"
+                break
+              fi
+              echo "Waiting for $service... ($i/30)"
+              sleep 2
+            done
+          done
         env:
           COMPOSE_PROJECT_NAME: delineate-ci
 
