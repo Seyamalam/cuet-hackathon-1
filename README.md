@@ -1,5 +1,7 @@
 # Delineate Hackathon Challenge - CUET Fest 2025
 
+[![CI](https://github.com/Seyamalam/cuet-hackathon-1/actions/workflows/ci.yml/badge.svg)](https://github.com/Seyamalam/cuet-hackathon-1/actions/workflows/ci.yml)
+
 ## The Scenario
 
 This microservice simulates a **real-world file download system** where processing times vary significantly:
