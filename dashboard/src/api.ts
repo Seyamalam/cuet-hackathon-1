@@ -1,6 +1,16 @@
-import { withSpan } from "./tracing";
+import { withSpan, getTraceHeaders, getTraceContext, recordMetric } from "./tracing";
 
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3000";
+// Dynamically determine API base URL
+// Prefer same-origin proxy paths to avoid CORS and port-forward issues.
+function getApiBaseUrl(): string {
+  const configured = import.meta.env.VITE_API_URL;
+  if (configured) return configured;
+
+  // Default: same-origin proxy (Vite dev server or Nginx) should forward this.
+  return "/api";
+}
+
+const API_BASE = getApiBaseUrl();
 
 export interface HealthResponse {
   status: "healthy" | "unhealthy";
@@ -55,7 +65,7 @@ export interface JaegerProcess {
   tags: { key: string; value: string }[];
 }
 
-// API Client with tracing
+// API Client with tracing and W3C Trace Context propagation
 class ApiClient {
   private baseUrl: string;
 
@@ -65,12 +75,29 @@ class ApiClient {
 
   private async fetch<T>(endpoint: string, options?: RequestInit): Promise<T> {
     const url = `${this.baseUrl}${endpoint}`;
+    const startTime = performance.now();
+    
+    // Get trace context headers for distributed tracing
+    const traceHeaders = getTraceHeaders();
+    const traceContext = getTraceContext();
+    
     const response = await fetch(url, {
       ...options,
       headers: {
         "Content-Type": "application/json",
+        ...traceHeaders,
         ...options?.headers,
       },
+    });
+
+    const duration = performance.now() - startTime;
+    
+    // Record performance metric
+    recordMetric("http.request.duration", duration, {
+      endpoint,
+      method: options?.method || "GET",
+      status: response.status,
+      traceId: traceContext?.traceId || "unknown",
     });
 
     if (!response.ok) {
@@ -117,17 +144,21 @@ class ApiClient {
   }
 }
 
-// Jaeger API Client
+// Jaeger API Client - uses lazy URL resolution to work at runtime
 class JaegerClient {
-  private baseUrl: string;
+  private getBaseUrl(): string {
+    const configured = import.meta.env.VITE_JAEGER_URL;
+    if (configured) return configured;
 
-  constructor(baseUrl: string) {
-    this.baseUrl = baseUrl;
+    // Default: same-origin proxy (Vite dev server or Nginx) should forward this.
+    return "/jaeger";
   }
 
   async getServices(): Promise<string[]> {
     try {
-      const response = await fetch(`${this.baseUrl}/api/services`);
+      const baseUrl = this.getBaseUrl();
+      console.log("Fetching Jaeger services from:", baseUrl);
+      const response = await fetch(`${baseUrl}/api/services`);
       const data = await response.json();
       return data.data || [];
     } catch (error) {
@@ -138,12 +169,13 @@ class JaegerClient {
 
   async getTraces(service: string, limit = 20): Promise<JaegerTrace[]> {
     try {
+      const baseUrl = this.getBaseUrl();
       const params = new URLSearchParams({
         service,
         limit: limit.toString(),
         lookback: "1h",
       });
-      const response = await fetch(`${this.baseUrl}/api/traces?${params}`);
+      const response = await fetch(`${baseUrl}/api/traces?${params}`);
       const data = await response.json();
       return data.data || [];
     } catch (error) {
@@ -154,7 +186,8 @@ class JaegerClient {
 
   async getTrace(traceId: string): Promise<JaegerTrace | null> {
     try {
-      const response = await fetch(`${this.baseUrl}/api/traces/${traceId}`);
+      const baseUrl = this.getBaseUrl();
+      const response = await fetch(`${baseUrl}/api/traces/${traceId}`);
       const data = await response.json();
       return data.data?.[0] || null;
     } catch (error) {
@@ -165,6 +198,4 @@ class JaegerClient {
 }
 
 export const apiClient = new ApiClient(API_BASE);
-export const jaegerClient = new JaegerClient(
-  import.meta.env.VITE_JAEGER_URL || "http://localhost:16686",
-);
+export const jaegerClient = new JaegerClient();

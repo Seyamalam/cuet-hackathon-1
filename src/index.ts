@@ -198,7 +198,12 @@ function trackError(
   }
 }
 
-const app = new OpenAPIHono();
+// Declare Hono context variable types
+type Variables = {
+  requestId: string;
+};
+
+const app = new OpenAPIHono<{ Variables: Variables }>();
 
 // Metrics middleware - track request counts and duration
 app.use(async (c, next) => {
@@ -236,9 +241,18 @@ app.use(
   cors({
     origin: env.CORS_ORIGINS,
     allowMethods: ["GET", "POST", "OPTIONS"],
-    allowHeaders: ["Content-Type", "Authorization", "X-Request-ID"],
+    allowHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-Request-ID",
+      "X-Trace-ID",
+      "X-Span-ID",
+      "traceparent",
+      "tracestate",
+    ],
     exposeHeaders: [
       "X-Request-ID",
+      "X-Trace-ID",
       "X-RateLimit-Limit",
       "X-RateLimit-Remaining",
     ],

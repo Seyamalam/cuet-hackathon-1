@@ -11,6 +11,16 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ""),
       },
+      "/jaeger": {
+        target: "http://localhost:16686",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/jaeger/, ""),
+      },
+      "/prometheus": {
+        target: "http://localhost:9090",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/prometheus/, ""),
+      },
     },
   },
 });
