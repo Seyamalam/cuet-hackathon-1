@@ -95,6 +95,27 @@ services:
       - delineate-prometheus
     restart: unless-stopped
 
+  # React Observability Dashboard
+  delineate-dashboard:
+    build:
+      context: ../dashboard
+      dockerfile: Dockerfile
+    ports:
+      - "8080:80"
+    environment:
+      - VITE_API_URL=http://delineate-app:3000
+      - VITE_PROMETHEUS_URL=http://delineate-prometheus:9090
+      - VITE_JAEGER_URL=http://delineate-jaeger:16686
+      - VITE_GRAFANA_URL=http://delineate-grafana:3000
+    depends_on:
+      - delineate-app
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:80"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
 volumes:
   minio-data:
   prometheus-data:
