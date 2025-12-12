@@ -453,7 +453,105 @@ npm run docker:dev
 npm run docker:prod
 ```
 
-## Environment Variables
+---
+
+## CI/CD Pipeline
+
+[![CI/CD Pipeline](https://github.com/Seyamalam/cuet-hackathon-1/actions/workflows/ci.yml/badge.svg)](https://github.com/Seyamalam/cuet-hackathon-1/actions/workflows/ci.yml)
+
+### Pipeline Stages
+
+```
+┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
+│    Lint     │───▶│    Test     │───▶│  Security   │───▶│    Build    │───▶│   Deploy    │
+│  (ESLint,   │    │   (E2E +    │    │   (Trivy)   │    │  (Docker)   │    │   (AWS VM)  │
+│  Prettier)  │    │ Dashboard)  │    │             │    │             │    │             │
+└─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘
+```
+
+### Pipeline Features
+
+| Feature | Description |
+|---------|-------------|
+| **Lint** | ESLint + Prettier format check |
+| **E2E Tests** | Full API tests with MinIO S3 storage |
+| **Dashboard Tests** | TypeScript check + Vite build |
+| **Security Scan** | Trivy vulnerability scanner with SARIF upload |
+| **Docker Build** | Multi-platform builds with GitHub Container Registry |
+| **Integration Tests** | Full Docker Compose stack testing |
+| **Deployment** | AWS VM deployment (configurable) |
+
+### Triggers
+
+- ✅ Push to `main` or `master` branch
+- ✅ Pull requests to `main` or `master` branch
+
+### Running Tests Locally
+
+Before pushing, run these commands to ensure CI will pass:
+
+```bash
+# 1. Lint check
+npm run lint
+
+# 2. Format check
+npm run format:check
+
+# 3. Run E2E tests (requires Docker for MinIO)
+npm run test:e2e
+
+# 4. Build dashboard
+cd dashboard && npm run build && cd ..
+
+# Or run all checks at once
+npm run lint && npm run format:check && npm run test:e2e
+```
+
+### For Contributors
+
+1. **Fork the repository** and create a feature branch
+2. **Make your changes** and ensure all tests pass locally
+3. **Push your branch** - CI will run automatically
+4. **Create a Pull Request** - wait for all checks to pass
+5. **Request review** once CI is green
+
+### CI Configuration
+
+The full pipeline is defined in [.github/workflows/ci.yml](.github/workflows/ci.yml):
+
+| Job | Description | Dependencies |
+|-----|-------------|--------------|
+| `lint` | ESLint + Prettier | None |
+| `test` | E2E tests with MinIO | lint |
+| `test-dashboard` | Dashboard build | lint |
+| `security` | Trivy scanner | lint |
+| `build` | Docker image build | test, test-dashboard, security |
+| `integration` | Docker Compose tests | build |
+| `deploy` | AWS VM deployment | build, integration |
+
+### Docker Images
+
+Docker images are automatically built and pushed to GitHub Container Registry:
+
+```bash
+# API Image
+docker pull ghcr.io/seyamalam/cuet-hackathon-1:latest
+
+# Dashboard Image
+docker pull ghcr.io/seyamalam/cuet-hackathon-1-dashboard:latest
+```
+
+### Deployment (AWS VM)
+
+To enable deployment, configure these secrets in your GitHub repository:
+
+| Secret | Description |
+|--------|-------------|
+| `AWS_SSH_PRIVATE_KEY` | SSH private key for VM access |
+| `AWS_VM_HOST` | VM hostname or IP address |
+| `AWS_VM_USER` | SSH username (e.g., `ubuntu`) |
+
+---
 
 Create a `.env` file in the project root:
 

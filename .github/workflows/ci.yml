@@ -1,4 +1,4 @@
-name: CI
+name: CI/CD Pipeline
 
 on:
   push:
@@ -9,16 +9,24 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  NODE_VERSION: "24"
 
 jobs:
+  # ==========================================
+  # Stage 1: Lint (ESLint + Prettier)
+  # ==========================================
   lint:
-    name: Lint
+    name: 🔍 Lint & Format Check
     runs-on: ubuntu-24.04
-    container:
-      image: node:24-slim
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
 
       - name: Install dependencies
         run: npm ci
@@ -26,29 +34,66 @@ jobs:
       - name: Run ESLint
         run: npm run lint
 
-      - name: Check formatting
+      - name: Check formatting (Prettier)
         run: npm run format:check
 
+  # ==========================================
+  # Stage 2: E2E Tests with Full Stack
+  # ==========================================
   test:
-    name: E2E Tests
+    name: 🧪 E2E Tests
     runs-on: ubuntu-24.04
     needs: lint
-    container:
-      image: node:24-slim
+    services:
+      minio:
+        image: minio/minio:latest
+        ports:
+          - 9000:9000
+        env:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin
+        options: >-
+          --health-cmd "mc ready local || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        # MinIO server command
+        # Note: Using default command from image
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
       - name: Install dependencies
         run: npm ci
+
+      - name: Create MinIO bucket
+        run: |
+          # Install mc client
+          curl -sL https://dl.min.io/client/mc/release/linux-amd64/mc -o /usr/local/bin/mc
+          chmod +x /usr/local/bin/mc
+          
+          # Configure and create bucket
+          mc alias set myminio http://localhost:9000 minioadmin minioadmin
+          mc mb myminio/downloads --ignore-existing
+          mc anonymous set download myminio/downloads
 
       - name: Run E2E tests
         run: npm run test:e2e
         env:
-          NODE_ENV: development
+          NODE_ENV: test
           PORT: 3000
           S3_REGION: us-east-1
-          S3_BUCKET_NAME: ""
+          S3_ENDPOINT: http://localhost:9000
+          S3_ACCESS_KEY_ID: minioadmin
+          S3_SECRET_ACCESS_KEY: minioadmin
+          S3_BUCKET_NAME: downloads
           S3_FORCE_PATH_STYLE: "true"
           SENTRY_DSN: ""
           OTEL_EXPORTER_OTLP_ENDPOINT: ""
@@ -56,35 +101,131 @@ jobs:
           RATE_LIMIT_WINDOW_MS: "60000"
           RATE_LIMIT_MAX_REQUESTS: "100"
           CORS_ORIGINS: "*"
+          DOWNLOAD_DELAY_ENABLED: "false"
 
-  security:
-    name: Security Scan
+      - name: Test API Health Endpoint
+        run: |
+          # Start the server in background
+          npm run start &
+          SERVER_PID=$!
+          sleep 5
+          
+          # Test health endpoint
+          HEALTH=$(curl -sf http://localhost:3000/health || echo '{"status":"error"}')
+          echo "Health response: $HEALTH"
+          
+          # Verify storage is ok
+          if echo "$HEALTH" | grep -q '"storage":"ok"'; then
+            echo "✅ Storage health check passed"
+          else
+            echo "❌ Storage health check failed"
+            kill $SERVER_PID 2>/dev/null || true
+            exit 1
+          fi
+          
+          kill $SERVER_PID 2>/dev/null || true
+        env:
+          NODE_ENV: test
+          S3_ENDPOINT: http://localhost:9000
+          S3_ACCESS_KEY_ID: minioadmin
+          S3_SECRET_ACCESS_KEY: minioadmin
+          S3_BUCKET_NAME: downloads
+          S3_FORCE_PATH_STYLE: "true"
+          DOWNLOAD_DELAY_ENABLED: "false"
+
+  # ==========================================
+  # Stage 2b: Dashboard Tests
+  # ==========================================
+  test-dashboard:
+    name: 🎨 Dashboard Build & Test
     runs-on: ubuntu-24.04
     needs: lint
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          scan-type: 'fs'
-          scan-ref: '.'
-          format: 'table'
-          exit-code: '0'
-          ignore-unfixed: true
-          severity: 'CRITICAL,HIGH'
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: dashboard/package-lock.json
 
-  build:
-    name: Build Docker Image
+      - name: Install dashboard dependencies
+        working-directory: dashboard
+        run: npm ci
+
+      - name: Type check dashboard
+        working-directory: dashboard
+        run: npx tsc --noEmit
+
+      - name: Build dashboard
+        working-directory: dashboard
+        run: npm run build
+        env:
+          VITE_API_URL: http://localhost:3000
+          VITE_JAEGER_URL: http://localhost:16686
+          VITE_PROMETHEUS_URL: http://localhost:9090
+          VITE_GRAFANA_URL: http://localhost:3001
+
+      - name: Upload dashboard artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dashboard-dist
+          path: dashboard/dist
+          retention-days: 7
+
+  # ==========================================
+  # Stage 3: Security Scanning
+  # ==========================================
+  security:
+    name: 🔒 Security Scan
     runs-on: ubuntu-24.04
-    needs: [test, security]
+    needs: lint
     permissions:
-      contents: read
-      packages: write
+      security-events: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner (filesystem)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "fs"
+          scan-ref: "."
+          format: "sarif"
+          output: "trivy-results.sarif"
+          severity: "CRITICAL,HIGH"
+          ignore-unfixed: true
+
+      - name: Upload Trivy scan results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: "trivy-results.sarif"
+
+      - name: Run npm audit
+        run: npm audit --audit-level=high || true
+        continue-on-error: true
+
+  # ==========================================
+  # Stage 4: Build Docker Images
+  # ==========================================
+  build:
+    name: 🐳 Build Docker Images
+    runs-on: ubuntu-24.04
+    needs: [test, test-dashboard, security]
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -97,7 +238,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata
+      - name: Extract metadata (API)
         id: meta
         uses: docker/metadata-action@v5
         with:
@@ -108,7 +249,7 @@ jobs:
             type=sha,prefix=
             type=raw,value=latest,enable={{is_default_branch}}
 
-      - name: Build and push Docker image
+      - name: Build and push API Docker image
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -118,34 +259,215 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          platforms: linux/amd64
 
-  deploy:
-    name: Deploy to Railway
+      - name: Extract metadata (Dashboard)
+        id: meta-dashboard
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-dashboard
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix=
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Dashboard Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./dashboard
+          file: ./dashboard/Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta-dashboard.outputs.tags }}
+          labels: ${{ steps.meta-dashboard.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64
+
+  # ==========================================
+  # Stage 5: Integration Tests (Docker Compose)
+  # ==========================================
+  integration:
+    name: 🔗 Integration Tests
     runs-on: ubuntu-24.04
     needs: build
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    environment:
-      name: production
-      url: ${{ steps.deploy.outputs.url }}
+    if: github.event_name != 'pull_request'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Railway CLI
-        run: npm install -g @railway/cli
-
-      - name: Deploy to Railway
-        id: deploy
+      - name: Create .env file
         run: |
-          railway up --service delineate-app
+          cat > .env << EOF
+          NODE_ENV=production
+          PORT=3000
+          S3_REGION=us-east-1
+          S3_ENDPOINT=http://delineate-minio:9000
+          S3_ACCESS_KEY_ID=minioadmin
+          S3_SECRET_ACCESS_KEY=minioadmin
+          S3_BUCKET_NAME=downloads
+          S3_FORCE_PATH_STYLE=true
+          SENTRY_DSN=
+          OTEL_EXPORTER_OTLP_ENDPOINT=http://delineate-jaeger:4318
+          REQUEST_TIMEOUT_MS=30000
+          RATE_LIMIT_WINDOW_MS=60000
+          RATE_LIMIT_MAX_REQUESTS=100
+          CORS_ORIGINS=*
+          DOWNLOAD_DELAY_ENABLED=false
+          EOF
+
+      - name: Start services with Docker Compose
+        run: |
+          cd docker
+          docker compose -f compose.dev.yml up -d --wait --wait-timeout 120
         env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          COMPOSE_PROJECT_NAME: delineate-ci
+
+      - name: Wait for services to be ready
+        run: |
+          echo "Waiting for services..."
+          sleep 30
+          
+          # Check API health
+          for i in {1..30}; do
+            if curl -sf http://localhost:3000/health; then
+              echo "✅ API is healthy"
+              break
+            fi
+            echo "Waiting for API... ($i/30)"
+            sleep 2
+          done
+
+      - name: Run integration tests
+        run: |
+          # Test root endpoint
+          echo "Testing root endpoint..."
+          curl -sf http://localhost:3000/ | jq .
+          
+          # Test health endpoint
+          echo "Testing health endpoint..."
+          HEALTH=$(curl -sf http://localhost:3000/health)
+          echo "$HEALTH" | jq .
+          
+          # Verify health checks
+          if echo "$HEALTH" | jq -e '.checks.storage == "ok"' > /dev/null; then
+            echo "✅ Storage check passed"
+          else
+            echo "❌ Storage check failed"
+            exit 1
+          fi
+          
+          # Test API docs
+          echo "Testing API docs..."
+          curl -sf http://localhost:3000/docs > /dev/null && echo "✅ Docs available"
+          
+          # Test OpenAPI spec
+          echo "Testing OpenAPI spec..."
+          curl -sf http://localhost:3000/openapi | jq '.info.title' && echo "✅ OpenAPI spec available"
+          
+          # Test metrics endpoint
+          echo "Testing metrics endpoint..."
+          curl -sf http://localhost:3000/metrics | head -20 && echo "✅ Metrics available"
+          
+          # Test download check endpoint
+          echo "Testing download check endpoint..."
+          curl -sf -X POST http://localhost:3000/v1/download/check \
+            -H "Content-Type: application/json" \
+            -d '{"file_id": 70000}' | jq .
+          
+          # Test Prometheus
+          echo "Testing Prometheus..."
+          curl -sf http://localhost:9090/-/healthy && echo "✅ Prometheus healthy"
+          
+          # Test Jaeger
+          echo "Testing Jaeger..."
+          curl -sf http://localhost:16686/ > /dev/null && echo "✅ Jaeger UI available"
+          
+          # Test Grafana
+          echo "Testing Grafana..."
+          curl -sf http://localhost:3001/api/health | jq . && echo "✅ Grafana healthy"
+          
+          echo ""
+          echo "🎉 All integration tests passed!"
+
+      - name: Collect logs on failure
+        if: failure()
+        run: |
+          cd docker
+          docker compose -f compose.dev.yml logs --tail=100
+
+      - name: Stop services
+        if: always()
+        run: |
+          cd docker
+          docker compose -f compose.dev.yml down -v
+
+  # ==========================================
+  # Stage 6: Deploy (AWS VM - placeholder)
+  # ==========================================
+  deploy:
+    name: 🚀 Deploy
+    runs-on: ubuntu-24.04
+    needs: [build, integration]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment:
+      name: production
+      url: ${{ vars.PRODUCTION_URL }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy to AWS VM
+        run: |
+          echo "🚀 Deployment stage"
+          echo ""
+          echo "To enable deployment to AWS VM, configure these secrets:"
+          echo "  - AWS_SSH_PRIVATE_KEY: SSH private key for VM access"
+          echo "  - AWS_VM_HOST: VM hostname or IP"
+          echo "  - AWS_VM_USER: SSH username"
+          echo ""
+          echo "Deployment will:"
+          echo "  1. SSH into the VM"
+          echo "  2. Pull latest Docker images from GHCR"
+          echo "  3. Run docker compose up -d"
+          echo ""
+          echo "⏭️ Skipping deployment (not configured)"
         continue-on-error: true
 
-      - name: Deploy Status
+      # Uncomment when AWS VM is configured:
+      # - name: Deploy to AWS VM
+      #   uses: appleboy/ssh-action@v1.0.3
+      #   with:
+      #     host: ${{ secrets.AWS_VM_HOST }}
+      #     username: ${{ secrets.AWS_VM_USER }}
+      #     key: ${{ secrets.AWS_SSH_PRIVATE_KEY }}
+      #     script: |
+      #       cd /opt/delineate
+      #       docker compose pull
+      #       docker compose up -d --remove-orphans
+      #       docker system prune -f
+
+  # ==========================================
+  # Summary Job
+  # ==========================================
+  summary:
+    name: 📊 Pipeline Summary
+    runs-on: ubuntu-24.04
+    needs: [lint, test, test-dashboard, security, build]
+    if: always()
+    steps:
+      - name: Pipeline Summary
         run: |
-          if [ "${{ steps.deploy.outcome }}" == "success" ]; then
-            echo "✅ Deployment successful!"
-          else
-            echo "⚠️ Deployment skipped or failed. Ensure RAILWAY_TOKEN is configured."
-          fi
+          echo "## 🏁 Pipeline Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Stage | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| 🔍 Lint | ${{ needs.lint.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🧪 E2E Tests | ${{ needs.test.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🎨 Dashboard | ${{ needs.test-dashboard.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🔒 Security | ${{ needs.security.result == 'success' && '✅ Passed' || '⚠️ Warnings' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🐳 Build | ${{ needs.build.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered by:** @${{ github.actor }}" >> $GITHUB_STEP_SUMMARY

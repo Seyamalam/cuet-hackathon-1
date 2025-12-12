@@ -11,25 +11,25 @@ rule_files: []
 
 scrape_configs:
   # Prometheus self-monitoring
-  - job_name: 'prometheus'
+  - job_name: "prometheus"
     static_configs:
-      - targets: ['localhost:9090']
+      - targets: ["localhost:9090"]
 
   # Delineate API metrics
-  - job_name: 'delineate-api'
+  - job_name: "delineate-api"
     static_configs:
-      - targets: ['delineate-app:3000']
+      - targets: ["delineate-app:3000"]
     metrics_path: /metrics
     scrape_interval: 10s
 
-  # MinIO metrics
-  - job_name: 'minio'
+  # MinIO metrics (MINIO_PROMETHEUS_AUTH_TYPE=public enabled in docker-compose)
+  - job_name: "minio"
     static_configs:
-      - targets: ['delineate-minio:9000']
+      - targets: ["delineate-minio:9000"]
     metrics_path: /minio/v2/metrics/cluster
     scheme: http
 
   # Jaeger metrics
-  - job_name: 'jaeger'
+  - job_name: "jaeger"
     static_configs:
-      - targets: ['delineate-jaeger:14269']
+      - targets: ["delineate-jaeger:14269"]

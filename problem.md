@@ -22,10 +22,10 @@ This microservice simulates a real-world file download system where processing t
 
 When deploying this behind a reverse proxy (Cloudflare, nginx, AWS ALB), you will encounter:
 
-* **Connection Timeouts:** Cloudflare’s 100s timeout kills long requests
-* **Gateway Errors:** Users see 504 errors
-* **Poor UX:** No progress feedback
-* **Resource Waste:** Open connections consume memory
+- **Connection Timeouts:** Cloudflare’s 100s timeout kills long requests
+- **Gateway Errors:** Users see 504 errors
+- **Poor UX:** No progress feedback
+- **Resource Waste:** Open connections consume memory
 
 ### **Try it yourself**
 
@@ -79,24 +79,24 @@ The current Docker setup does **not** include an S3-compatible storage system. Y
 
 Your solution must:
 
-* Add S3-compatible storage in Docker Compose
-* Create bucket: **downloads**
-* Configure networking
-* Update env variables
-* Pass all E2E tests
-* `/health` must return:
+- Add S3-compatible storage in Docker Compose
+- Create bucket: **downloads**
+- Configure networking
+- Update env variables
+- Pass all E2E tests
+- `/health` must return:
 
 ```json
-{"status":"healthy","checks":{"storage":"ok"}}
+{ "status": "healthy", "checks": { "storage": "ok" } }
 ```
 
 ### **Required Environment Variables**
 
-* `S3_ENDPOINT`
-* `S3_ACCESS_KEY_ID`
-* `S3_SECRET_ACCESS_KEY`
-* `S3_BUCKET_NAME=downloads`
-* `S3_FORCE_PATH_STYLE=true`
+- `S3_ENDPOINT`
+- `S3_ACCESS_KEY_ID`
+- `S3_SECRET_ACCESS_KEY`
+- `S3_BUCKET_NAME=downloads`
+- `S3_FORCE_PATH_STYLE=true`
 
 ### **Testing**
 
@@ -117,10 +117,10 @@ curl -X POST http://localhost:3000/v1/download/check \
 
 Downloads vary from 10s to 120s+. Issues:
 
-* Proxy timeouts
-* Poor UX
-* Server resource exhaustion
-* Retry storms
+- Proxy timeouts
+- Poor UX
+- Server resource exhaustion
+- Retry storms
 
 ### **Your Mission**
 
@@ -158,12 +158,12 @@ Backend → callbackUrl when done.
 
 Include:
 
-* API changes
-* New endpoints
-* DB/cache schema
-* Queue system (Redis, BullMQ, SQS)
-* Error handling
-* Timeout configuration
+- API changes
+- New endpoints
+- DB/cache schema
+- Queue system (Redis, BullMQ, SQS)
+- Error handling
+- Timeout configuration
 
 ---
 
@@ -171,9 +171,9 @@ Include:
 
 Include examples for:
 
-* Cloudflare
-* nginx
-* Other reverse proxy
+- Cloudflare
+- nginx
+- Other reverse proxy
 
 ---
 
@@ -181,10 +181,10 @@ Include examples for:
 
 Explain:
 
-* Initiating downloads
-* Showing status/progress
-* Retry logic
-* Handling browser close events
+- Initiating downloads
+- Showing status/progress
+- Retry logic
+- Handling browser close events
 
 ---
 
@@ -202,31 +202,30 @@ Lint → Test → Build → Deploy
 
 ### **Pipeline Must:**
 
-* Trigger on push & PR
-* Run:
+- Trigger on push & PR
+- Run:
+  - `npm run lint`
+  - `npm run format:check`
+  - `npm run test:e2e`
 
-  * `npm run lint`
-  * `npm run format:check`
-  * `npm run test:e2e`
-* Build Docker image
-* Cache dependencies
-* Fail on errors
-* Report results
+- Build Docker image
+- Cache dependencies
+- Fail on errors
+- Report results
 
 ### **Deliverables**
 
-* `.github/workflows/ci.yml` or equivalent
-* README section with:
-
-  * CI badge
-  * Instructions
-  * Local test guide
+- `.github/workflows/ci.yml` or equivalent
+- README section with:
+  - CI badge
+  - Instructions
+  - Local test guide
 
 ### **Bonus**
 
-* Auto deploy (Railway, Render, Fly.io)
-* Security scanning
-* Notifications
+- Auto deploy (Railway, Render, Fly.io)
+- Security scanning
+- Notifications
 
 ---
 
@@ -236,8 +235,8 @@ Lint → Test → Build → Deploy
 
 Build a **React app** with:
 
-* Sentry (error tracking)
-* OpenTelemetry (tracing)
+- Sentry (error tracking)
+- OpenTelemetry (tracing)
 
 ### **Testing Sentry**
 
@@ -249,11 +248,11 @@ curl -X POST "http://localhost:3000/v1/download/check?sentry_test=true" \
 
 ### **Dashboard Features**
 
-* Health status
-* Download job list
-* Recent errors
-* Trace viewer (Jaeger)
-* Performance metrics
+- Health status
+- Download job list
+- Recent errors
+- Trace viewer (Jaeger)
+- Performance metrics
 
 ### **Trace Correlation Example**
 
@@ -277,13 +276,13 @@ Sentry errors → tagged with abc123
 
 ### **Tech Stack**
 
-* Node.js 24 (native TS)
-* Hono
-* Zod + OpenAPI
-* S3-compatible storage
-* OpenTelemetry + Jaeger
-* Sentry
-* Scalar API Docs
+- Node.js 24 (native TS)
+- Hono
+- Zod + OpenAPI
+- S3-compatible storage
+- OpenTelemetry + Jaeger
+- Sentry
+- Scalar API Docs
 
 ---
 
@@ -387,13 +386,13 @@ npm run docker:prod
 
 # **Security Features**
 
-* Request ID tracking
-* Rate limiting
-* Security headers
-* CORS configuration
-* Zod validation
-* Path traversal prevention
-* Graceful shutdown
+- Request ID tracking
+- Rate limiting
+- Security headers
+- CORS configuration
+- Zod validation
+- Path traversal prevention
+- Graceful shutdown
 
 ---
 

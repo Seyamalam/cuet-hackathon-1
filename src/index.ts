@@ -13,6 +13,92 @@ import { cors } from "hono/cors";
 import { secureHeaders } from "hono/secure-headers";
 import { timeout } from "hono/timeout";
 import { rateLimiter } from "hono-rate-limiter";
+import {
+  collectDefaultMetrics,
+  Counter,
+  Gauge,
+  Histogram,
+  Registry,
+} from "prom-client";
+
+// Create a custom registry for metrics
+const metricsRegistry = new Registry();
+
+// Collect default Node.js metrics (CPU, memory, event loop, etc.)
+collectDefaultMetrics({ register: metricsRegistry });
+
+// Custom metrics
+const httpRequestsTotal = new Counter({
+  name: "http_requests_total",
+  help: "Total number of HTTP requests",
+  labelNames: ["method", "path", "status"],
+  registers: [metricsRegistry],
+});
+
+const httpRequestDuration = new Histogram({
+  name: "http_request_duration_seconds",
+  help: "HTTP request duration in seconds",
+  labelNames: ["method", "path", "status"],
+  buckets: [0.01, 0.05, 0.1, 0.5, 1, 2, 5, 10, 30, 60, 120],
+  registers: [metricsRegistry],
+});
+
+const downloadJobsTotal = new Counter({
+  name: "download_jobs_total",
+  help: "Total number of download jobs initiated",
+  labelNames: ["status"],
+  registers: [metricsRegistry],
+});
+
+const downloadJobDuration = new Histogram({
+  name: "download_job_duration_seconds",
+  help: "Download job processing duration in seconds",
+  labelNames: ["status"],
+  buckets: [1, 5, 10, 30, 60, 120, 300],
+  registers: [metricsRegistry],
+});
+
+const activeDownloads = new Gauge({
+  name: "active_downloads",
+  help: "Number of currently active downloads",
+  registers: [metricsRegistry],
+});
+
+const s3HealthStatus = new Gauge({
+  name: "s3_health_status",
+  help: "S3 storage health status (1 = healthy, 0 = unhealthy)",
+  registers: [metricsRegistry],
+});
+
+const fileChecksTotal = new Counter({
+  name: "file_checks_total",
+  help: "Total number of file availability checks",
+  labelNames: ["available"],
+  registers: [metricsRegistry],
+});
+
+// S3 upload metrics
+const s3OperationsTotal = new Counter({
+  name: "s3_operations_total",
+  help: "Total number of S3 operations",
+  labelNames: ["operation", "status"],
+  registers: [metricsRegistry],
+});
+
+const s3OperationDuration = new Histogram({
+  name: "s3_operation_duration_seconds",
+  help: "S3 operation duration in seconds",
+  labelNames: ["operation"],
+  buckets: [0.01, 0.05, 0.1, 0.5, 1, 2, 5, 10],
+  registers: [metricsRegistry],
+});
+
+const s3BytesTransferred = new Counter({
+  name: "s3_bytes_transferred_total",
+  help: "Total bytes transferred to/from S3",
+  labelNames: ["direction"],
+  registers: [metricsRegistry],
+});
 
 // Helper for optional URL that treats empty string as undefined
 const optionalUrl = z
@@ -74,7 +160,56 @@ const otelSDK = new NodeSDK({
 });
 otelSDK.start();
 
+// In-memory error tracking for dashboard
+interface TrackedError {
+  id: string;
+  timestamp: string;
+  message: string;
+  stack?: string;
+  endpoint?: string;
+  method?: string;
+  status?: number;
+  requestId?: string;
+}
+
+const recentErrors: TrackedError[] = [];
+const MAX_ERRORS = 100;
+
+function trackError(error: Error | unknown, context?: { endpoint?: string; method?: string; status?: number; requestId?: string }) {
+  const trackedError: TrackedError = {
+    id: crypto.randomUUID(),
+    timestamp: new Date().toISOString(),
+    message: error instanceof Error ? error.message : String(error),
+    stack: error instanceof Error ? error.stack : undefined,
+    ...context
+  };
+  recentErrors.unshift(trackedError);
+  if (recentErrors.length > MAX_ERRORS) {
+    recentErrors.pop();
+  }
+}
+
 const app = new OpenAPIHono();
+
+// Metrics middleware - track request counts and duration
+app.use(async (c, next) => {
+  // Skip metrics endpoint to avoid recursion
+  if (c.req.path === "/metrics") {
+    await next();
+    return;
+  }
+
+  const start = Date.now();
+  await next();
+  const duration = (Date.now() - start) / 1000;
+
+  const path = c.req.routePath || c.req.path;
+  const method = c.req.method;
+  const status = String(c.res.status);
+
+  httpRequestsTotal.inc({ method, path, status });
+  httpRequestDuration.observe({ method, path, status }, duration);
+});
 
 // Request ID middleware - adds unique ID to each request
 app.use(async (c, next) => {
@@ -145,6 +280,15 @@ const ErrorResponseSchema = z
 app.onError((err, c) => {
   c.get("sentry").captureException(err);
   const requestId = c.get("requestId") as string | undefined;
+  
+  // Track error locally for dashboard
+  trackError(err, {
+    endpoint: c.req.path,
+    method: c.req.method,
+    status: 500,
+    requestId,
+  });
+  
   return c.json(
     {
       error: "Internal Server Error",
@@ -288,10 +432,12 @@ const checkS3Availability = async (
   size: number | null;
 }> => {
   const s3Key = sanitizeS3Key(fileId);
+  const startTime = Date.now();
 
   // If no bucket configured, use mock mode
   if (!env.S3_BUCKET_NAME) {
     const available = fileId % 7 === 0;
+    s3OperationsTotal.inc({ operation: "head", status: available ? "success" : "not_found" });
     return {
       available,
       s3Key: available ? s3Key : null,
@@ -305,12 +451,25 @@ const checkS3Availability = async (
       Key: s3Key,
     });
     const response = await s3Client.send(command);
+    const duration = (Date.now() - startTime) / 1000;
+    
+    // Track S3 operation metrics
+    s3OperationsTotal.inc({ operation: "head", status: "success" });
+    s3OperationDuration.observe({ operation: "head" }, duration);
+    if (response.ContentLength) {
+      s3BytesTransferred.inc({ direction: "download" }, response.ContentLength);
+    }
+    
     return {
       available: true,
       s3Key,
       size: response.ContentLength ?? null,
     };
   } catch {
+    const duration = (Date.now() - startTime) / 1000;
+    s3OperationsTotal.inc({ operation: "head", status: "not_found" });
+    s3OperationDuration.observe({ operation: "head" }, duration);
+    
     return {
       available: false,
       s3Key: null,
@@ -329,6 +488,42 @@ const getRandomDelay = (): number => {
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
+
+// Metrics endpoint (not part of OpenAPI spec)
+app.get("/metrics", async (c) => {
+  const metrics = await metricsRegistry.metrics();
+  return c.text(metrics, 200, {
+    "Content-Type": metricsRegistry.contentType,
+  });
+});
+
+// Recent errors endpoint for dashboard
+app.get("/errors", (c) => {
+  return c.json({
+    errors: recentErrors,
+    total: recentErrors.length,
+    maxStored: MAX_ERRORS,
+  });
+});
+
+// Trigger a test error for Sentry/dashboard testing
+app.post("/errors/test", (c) => {
+  const testError = new Error("Test error triggered from API");
+  trackError(testError, {
+    endpoint: "/errors/test",
+    method: "POST",
+    status: 500,
+    requestId: c.get("requestId"),
+  });
+  
+  // Also send to Sentry if configured
+  c.get("sentry").captureException(testError);
+  
+  return c.json({
+    message: "Test error triggered and tracked",
+    errorId: recentErrors[0]?.id,
+  });
+});
 
 // Routes
 const rootRoute = createRoute({
@@ -383,6 +578,10 @@ app.openapi(healthRoute, async (c) => {
   const storageHealthy = await checkS3Health();
   const status = storageHealthy ? "healthy" : "unhealthy";
   const httpStatus = storageHealthy ? 200 : 503;
+
+  // Update S3 health metric
+  s3HealthStatus.set(storageHealthy ? 1 : 0);
+
   return c.json(
     {
       status,
@@ -491,6 +690,10 @@ const downloadCheckRoute = createRoute({
 app.openapi(downloadInitiateRoute, (c) => {
   const { file_ids } = c.req.valid("json");
   const jobId = crypto.randomUUID();
+
+  // Track download job metric
+  downloadJobsTotal.inc({ status: "queued" });
+
   return c.json(
     {
       jobId,
@@ -513,6 +716,10 @@ app.openapi(downloadCheckRoute, async (c) => {
   }
 
   const s3Result = await checkS3Availability(file_id);
+
+  // Track file check metric
+  fileChecksTotal.inc({ available: String(s3Result.available) });
+
   return c.json(
     {
       file_id,
@@ -572,6 +779,9 @@ app.openapi(downloadStartRoute, async (c) => {
   const { file_id } = c.req.valid("json");
   const startTime = Date.now();
 
+  // Track active downloads
+  activeDownloads.inc();
+
   // Get random delay and log it
   const delayMs = getRandomDelay();
   const delaySec = (delayMs / 1000).toFixed(1);
@@ -587,12 +797,19 @@ app.openapi(downloadStartRoute, async (c) => {
   // Check if file is available in S3
   const s3Result = await checkS3Availability(file_id);
   const processingTimeMs = Date.now() - startTime;
+  const processingTimeSec = processingTimeMs / 1000;
+
+  // Track download completion
+  activeDownloads.dec();
 
   console.log(
     `[Download] Completed file_id=${String(file_id)}, actual_time=${String(processingTimeMs)}ms, available=${String(s3Result.available)}`,
   );
 
   if (s3Result.available) {
+    downloadJobsTotal.inc({ status: "completed" });
+    downloadJobDuration.observe({ status: "completed" }, processingTimeSec);
+
     return c.json(
       {
         file_id,
@@ -605,6 +822,9 @@ app.openapi(downloadStartRoute, async (c) => {
       200,
     );
   } else {
+    downloadJobsTotal.inc({ status: "failed" });
+    downloadJobDuration.observe({ status: "failed" }, processingTimeSec);
+
     return c.json(
       {
         file_id,
